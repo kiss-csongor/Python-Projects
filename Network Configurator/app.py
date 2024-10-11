@@ -76,57 +76,131 @@ def send_command(shell, command):
 
 def open_device_panel(ip):
     """Új ablak megnyitása és gombok hozzáadása az interaktív SSH session-höz.""" 
-    panel = tk.Toplevel(root)
-    panel.title(f"Eszköz kezelése - {ip}")
+    panel = create_device_panel(ip)
 
     shell, error_or_client = ssh_interactive_shell(ip)
-
     if not shell:
-        output_label = tk.Label(panel, text=error_or_client)
-        output_label.pack(pady=10)
+        display_error(panel, error_or_client)
         return
 
-    # Szám mező és állapot kiválasztása
+    # Szám mező, állapot kiválasztása, legördülő menü, gomb és kimeneti mező összerendezése
+    number_entry, status_var, output_label, operation_var, vlan_id = create_toggle_port_widgets(panel)
+    create_status_button(panel, number_entry, status_var, output_label, operation_var, vlan_id, shell)
+
+    # Panel bezárásának kezelése
+    def on_close():
+        error_or_client.close()  # SSH kapcsolat lezárása
+        panel.destroy()
+    
+    panel.protocol("WM_DELETE_WINDOW", on_close)
+
+# Új ablak létrehozása
+def create_device_panel(ip):
+    panel = tk.Toplevel(root)
+    panel.title(f"Eszköz kezelése - {ip}")
+    return panel
+
+# Hibaüzenet megjelenítése
+def display_error(panel, error_message):
+    output_label = tk.Label(panel, text=error_message)
+    output_label.pack(pady=10)
+
+# Szám mező, állapot kiválasztása, kimeneti label és műveletválasztó legördülő menü létrehozása
+def create_toggle_port_widgets(panel):
     input_frame = tk.Frame(panel)
     input_frame.pack(pady=10)
 
-    # Szám mező (kicsi méret)
-    number_entry = tk.Entry(input_frame, width=10)  # Kisebb szélesség
-    number_entry.pack(side=tk.LEFT, padx=5)
+    # Művelet kiválasztása legördülő menüvel - Felirat hozzáadása
+    operation_label = tk.Label(panel, text="Válassz egy műveletet:")
+    operation_label.pack(pady=5)
+    
+    operation_var = tk.StringVar(value="")
+    operation_combobox = ttk.Combobox(panel, textvariable=operation_var, values=["Port állapot", "Port hozzáférés"], width=25)
+    operation_combobox.pack(pady=10)
 
-    # Állapot kiválasztása (kicsi méret)
-    status_var = tk.StringVar(value="fel")  # Alapértelmezett állapot "fel"
-    status_combobox = ttk.Combobox(input_frame, textvariable=status_var, values=["fel", "le"], width=5)  # Kisebb szélesség
-    status_combobox.pack(side=tk.LEFT, padx=5)
+    # Szám mező 1 - Felirat hozzáadása
+    port_number_label = tk.Label(input_frame, text="Interfész")
+    port_number = tk.Entry(input_frame, width=10)
+
+    # Szám mező 2 - Felirat hozzáadása
+    vlan_id_label = tk.Label(input_frame, text="VLAN száma")
+    vlan_id = tk.Entry(input_frame, width=10)
+
+    # Állapot kiválasztása - Felirat hozzáadása
+    status_label = tk.Label(input_frame, text="Állapot:")
+    status_var = tk.StringVar(value="fel")
+    status_combobox = ttk.Combobox(input_frame, textvariable=status_var, values=["fel", "le"], width=5)
+
+    # Kimeneti label
+    output_label = tk.Label(panel, text="", anchor="w", justify="left", relief="sunken", wraplength=500)
+    output_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    # Funkció a widgetek megjelenítésére vagy elrejtésére
+    def update_widgets_visibility(event):
+        if operation_var.get() == "Port állapot":
+            port_number_label.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+            port_number.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+            vlan_id_label.pack_forget()  # Elrejtés
+            vlan_id.pack_forget()  # Elrejtés
+            status_label.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+            status_combobox.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+        elif operation_var.get() == "Port hozzáférés":
+            port_number_label.pack(side=tk.LEFT, padx=5)  # Elrejtés
+            port_number.pack(side=tk.LEFT, padx=5)  # Elrejtés
+            vlan_id_label.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+            vlan_id.pack(side=tk.LEFT, padx=5)  # Megjelenítés
+            status_label.pack_forget()  # Elrejtés
+            status_combobox.pack_forget()  # Elrejtés
+
+    # Esemény kapcsolása a legördülő menühöz
+    operation_combobox.bind("<<ComboboxSelected>>", update_widgets_visibility)
+
+    print(operation_var)
+    return port_number, status_var, output_label, operation_var, vlan_id
+
+# Port állapotát változtató gomb létrehozása
+def create_status_button(panel, port_number, status_var, output_label, operation_var, vlan_id, shell):
+    def execute_operation():
+        selected_operation = operation_var.get()
+
+        if selected_operation == "Port állapot":
+            toggle_port_status()
+        elif selected_operation == "Port hozzáférés":
+            set_port_vlan()
 
     def toggle_port_status():
-        number = number_entry.get()
+        number = port_number.get()
         status = status_var.get()
-        output = send_command(shell, "")
         command = ""
 
+        output = send_command(shell, "")
         if output[0] != "[": 
             command += "system-view\n"
         if status == "fel":
-            command += f"interface GE1/0/{number}\nundo shutdown\n"
+            command += f"interface {number}\nundo shutdown\nquit"
         elif status == "le":
-            command += f"interface GE1/0/{number}\nshutdown\n"
+            command += f"interface {number}\nshutdown\nquit"
 
         output = send_command(shell, command)
         output_label.config(text=output)
 
-    # Gomb a port állapotának változtatására (közepes méret)
-    status_button = tk.Button(panel, text="Állapot változtatása", command=toggle_port_status, width=15)  # Közepes szélesség
+    def set_port_vlan():
+        number = port_number.get()
+        vlan = vlan_id.get()
+        command = ""
+
+        output = send_command(shell, "")
+        if output[0] != "[": 
+            command += "system-view\n"
+        send_command(shell, f"vlan {vlan}\nquit")
+        command += f"interface {number}\nport link-type access\nport default vlan {vlan}\nquit"
+
+        output = send_command(shell, command)
+        output_label.config(text=output)
+
+    # Gomb a műveletek végrehajtására
+    status_button = tk.Button(panel, text="Végrehajtás", command=execute_operation, width=15)
     status_button.pack(pady=10)
-
-    output_label = tk.Label(panel, text="", anchor="w", justify="left", relief="sunken", wraplength=500)
-    output_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-    def on_close():
-        error_or_client.close()  # SSH kapcsolat lezárása
-        panel.destroy()
-
-    panel.protocol("WM_DELETE_WINDOW", on_close)
 
 def create_table(devices):
     """Táblázat létrehozása az eszközökkel.""" 

@@ -1,6 +1,0 @@
-scapy
-paramiko
-tkinter
-psutil
-networkx
-matplotlib

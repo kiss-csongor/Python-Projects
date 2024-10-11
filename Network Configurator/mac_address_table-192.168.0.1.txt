@@ -1,0 +1,10 @@
+
+Info: The max number of VTY users is 5, the number of current VTY users online is 1, and total number of terminal users online is 1.
+      The current login time is 2024-01-19 17:22:00.
+<DDC-GTC-004>
+                                 ^
+Error: Wrong parameter found at '^' position.
+<DDC-GTC-004>
+<DDC-GTC-004>
+<DDC-GTC-004>
+Info: The max number of VTY users is 5, and the number of current VTY users on line is 0.
