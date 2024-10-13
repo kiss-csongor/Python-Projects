@@ -2,14 +2,16 @@ import os
 import re
 
 def extract_mac_addresses_from_file(filepath):
-    """Kivonja a MAC címeket a megadott fájlból."""
+    """Kivonja a MAC címeket a megadott fájlból, pontok nélkül."""
     mac_addresses = set()
     with open(filepath, 'r') as file:
         for line in file:
             # MAC címek keresése reguláris kifejezéssel
-            matches = re.findall(r'([0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4})', line, re.IGNORECASE)
+            matches = re.findall(r'([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})', line, re.IGNORECASE)
             for match in matches:
-                mac_addresses.add(match)  # Hozzáadás halmazhoz
+                # Pontok eltávolítása és kettőspontokkal helyettesítése
+                cleaned_mac = match.replace('.', '')
+                mac_addresses.add(cleaned_mac)  # Hozzáadás halmazhoz
     return mac_addresses
 
 def load_mac_addresses_from_directory(directory):

@@ -2,11 +2,22 @@ from scapy.all import ARP, Ether, srp
 import psutil
 import ipaddress
 import socket
+import paramiko
+
 import tkinter as tk
 from tkinter import ttk
-import paramiko
+
 import os
 import re
+
+import networkx as nx
+import matplotlib.pyplot as plt
+from PIL import Image
+
+device_types = {}
+device_list = {}
+devices_mac_addresses = {}
+edges = []
 
 def get_friendly_interfaces():
     """Az eszköz interfész listájának létrehozása IP-címekkel, alhálózatokkal és alhálózati maszkokkal."""
@@ -83,23 +94,6 @@ def scan_devices():
     create_table(devices)
     return devices
 
-def ssh_connect_and_get_own_mac_table(hostname, username, password, command="display interface | no-more"):
-    """SSH kapcsolat létrehozása és a MAC address tábla lekérdezése."""
-    try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname, username=username, password=password)
-        stdin, stdout, stderr = ssh.exec_command(command)
-        output = stdout.read().decode()
-
-        with open(f"own_mac_address_table-{hostname}.txt", "w") as file:
-            file.write(output)
-
-        print(f"MAC address tábla sikeresen mentve: mac_address_table-{hostname}.txt")
-        ssh.close()
-    except Exception as e:
-        print(f"Hiba történt az SSH kapcsolat létrehozása során: {e}")
-
 def ssh_connect_and_get_mac_table(hostname, username, password, command="display mac-address table"):
     """SSH kapcsolat létrehozása és a MAC address tábla lekérdezése."""
     try:
@@ -114,8 +108,10 @@ def ssh_connect_and_get_mac_table(hostname, username, password, command="display
 
         print(f"MAC address tábla sikeresen mentve: mac_address_table-{hostname}.txt")
         ssh.close()
+        return "sw"
     except Exception as e:
         print(f"Hiba történt az SSH kapcsolat létrehozása során: {e}")
+        return "pc"
 
 def start_ssh_connection():
     """Indítja az SSH kapcsolatot az összes eszközhöz és kimenti a MAC address táblákat."""
@@ -123,62 +119,141 @@ def start_ssh_connection():
     password = ssh_password_entry.get()
     scanned_devices = scan_devices()
 
+    counter_sw = 1
+    counter_pc = 1
+
     for device in scanned_devices:
         hostname = device['ip']
-        ssh_connect_and_get_own_mac_table(hostname, username, password)
-        ssh_connect_and_get_mac_table(hostname, username, password)
+        device_list[device['ip']] = device['mac']
+        device_type = ssh_connect_and_get_mac_table(hostname, username, password)
+        if device_type == "sw":
+            device_types[f"{device_type}-{counter_sw}"] = device['ip']
+            counter_sw += 1
+        elif device_type == "pc":
+            device_types[f"{device_type}-{counter_pc}"] = device['ip']
+            counter_pc += 1
 
-    own_mac_tables()
+    load_mac_addresses_from_directory("./")
+    edge_summary(devices_mac_addresses, device_list)
+    draw_network_graph(device_types, edges)
 
 def extract_mac_addresses_from_file(filepath):
-    """Kivonja a MAC címeket a megadott fájlból."""
+    """Kinyeri a MAC címeket a megadott fájlból."""
     mac_addresses = set()
     with open(filepath, 'r') as file:
         for line in file:
             # MAC címek keresése reguláris kifejezéssel
-            matches = re.findall(r'([0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4})', line, re.IGNORECASE)
+            matches = re.findall(r'([0-9a-f]{4}.[0-9a-f]{4}.[0-9a-f]{4})', line, re.IGNORECASE)
             for match in matches:
                 mac_addresses.add(match)  # Hozzáadás halmazhoz
-    return mac_addresses
+    mac_addresses_list = list(mac_addresses)
+    return mac_addresses_list
 
 def load_mac_addresses_from_directory(directory):
     """Beolvassa az összes .txt fájlt a megadott mappából, és a MAC címeket IP címekhez rendeli."""
-    own_ip_mac_dict = {}
-    ip_mac_dict = {}
     
     for filename in os.listdir(directory):
-        if filename.endswith('.txt') and filename[:3] == "own":
+        if filename.endswith('.txt') and filename[:3]:
             # IP cím kinyerése a fájlnévből (hostname.txt -> hostname)
             full_name = str(filename[:-4])  # eltávolítjuk a .txt kiterjesztést
             ip_address_name =  full_name.split('-')[1] # itt használhatod a tényleges IP cím kinyerését, ha szükséges
             
             # MAC címek kinyerése
-            mac_addresses = extract_mac_addresses_from_file(os.path.join(directory, filename))
+            mac_addresses_list = extract_mac_addresses_from_file(os.path.join(directory, filename))
             
             # Szótár frissítése
-            if mac_addresses:
-                own_ip_mac_dict[ip_address_name] = mac_addresses
-        elif filename.endswith('.txt') and filename[:3] != "own":
-            # IP cím kinyerése a fájlnévből (hostname.txt -> hostname)
-            full_name = str(filename[:-4])  # eltávolítjuk a .txt kiterjesztést
-            ip_address_name =  full_name.split('-')[1] # itt használhatod a tényleges IP cím kinyerését, ha szükséges
-            
-            # MAC címek kinyerése
-            mac_addresses = extract_mac_addresses_from_file(os.path.join(directory, filename))
-            
-            # Szótár frissítése
-            if mac_addresses:
-                ip_mac_dict[ip_address_name] = mac_addresses
+            if mac_addresses_list:
+                devices_mac_addresses[ip_address_name] = mac_addresses_list
 
-    return own_ip_mac_dict, ip_mac_dict
+import networkx as nx
+import matplotlib.pyplot as plt
+from PIL import Image
 
-def own_mac_tables():
-    own_mac_address, mac_address_table = load_mac_addresses_from_directory("./")
-    print(f"{own_mac_address}\n\n\n{mac_address_table}")
+def draw_network_graph(device_types, edges):
+    # Ikonok elérési útvonalai
+    icons = {
+        "pc": "images/pc.png",  # PC
+        "sw": "images/switch.png",  # Switch
+        "r": "images/router.png",  # Router
+    }
+    
+    # Képek betöltése és hibakezelés
+    images = {}
+    for key, path in icons.items():
+        try:
+            images[key] = Image.open(path)
+        except FileNotFoundError:
+            print(f"Hiba: A(z) '{path}' fájl nem található.")
+            images[key] = None  # Beállítunk None-t, ha a fájl nem található
+
+    print(images)
+
+    # Gráf létrehozása
+    G = nx.Graph()
+    # Csomópontok hozzáadása megfelelő képekkel
+    for device_type, ip in device_types.items():
+        device_key = device_type.split('-')[0]  # A 'pc', 'sw' vagy 'r' prefix
+        if device_key in images and images[device_key] is not None:
+            G.add_node(ip, image=images[device_key])
+        else:
+            print(f"A {device_key} eszközhöz nem található kép az IP címmel: {ip}")
+
+    # Élek hozzáadása
+    for edge in edges:
+        src, dest = edge.split('-')[0], edge.split('-')[1]
+        G.add_edge(src, dest)
+
+    # Elrendezés meghatározása
+    pos = nx.spring_layout(G, seed=42)
+
+    # Ábra létrehozása
+    fig, ax = plt.subplots()
+
+    # Élek kirajzolása
+    nx.draw_networkx_edges(G, pos, ax=ax)
+
+    # Funkció a képek és címkék hozzáadására a csomópontokhoz
+    def add_images_and_labels_to_nodes(G, pos, ax):
+        tr_figure = ax.transData.transform
+        tr_axes = fig.transFigure.inverted().transform
+        
+        icon_size = (ax.get_xlim()[1] - ax.get_xlim()[0])
+        icon_size = icon_size * (0.05 / len(G.nodes)) if len(G.nodes) > 4 else icon_size * 0.05
+        icon_center = icon_size / 2.0
+        
+        for node in G.nodes:
+            xf, yf = tr_figure(pos[node])
+            xa, ya = tr_axes((xf, yf))
+            a = plt.axes([xa - icon_center, ya - icon_center, icon_size, icon_size])
+            if 'image' in G.nodes[node]:
+                a.imshow(G.nodes[node]["image"])
+                a.axis("off")
+                # IP cím címke hozzáadása az ikon fölé
+                ax.text(pos[node][0], pos[node][1] + 0.1, node, fontsize=12, ha='center')
+            else:
+                print(f"A {node} csomópontnak nincs 'image' attribútuma.")  # Hibakeresési sor
+
+    # Képek és címkék hozzáadása a gráf csomópontjaihoz
+    add_images_and_labels_to_nodes(G, pos, ax)
+
+    plt.show()
+
+def edge_summary(mac_addresses, devices):
+    for ip, macs in mac_addresses.items():
+        for mac in macs:
+            matching_ip = next((key for key, value in devices.items() if value.replace(":", "") == mac.replace(".","")), None)
+            # Ellenőrizzük, hogy találtunk-e matching_ip-t
+            if matching_ip is None:
+                # Ha nem találunk egyezést, emeljük a kivételt
+                continue
+            # Ha van matching_ip, adjuk hozzá az éleket
+            edge = f"{min(ip, matching_ip)}-{max(ip, matching_ip)}"
+            if edge not in edges and matching_ip != ip:
+                edges.append(edge)
 
 def main():
     """A grafikus felület és a fő logika elindítása."""
-    global root, table_frame, canvas, interface_combobox, ssh_username_entry, ssh_password_entry, scanned_devices
+    global root, table_frame, canvas, interface_combobox, ssh_username_entry, ssh_password_entry
     
     root = tk.Tk()
     root.title("Hálózati Eszközök")
@@ -196,9 +271,6 @@ def main():
 
     table_frame = tk.Frame(canvas)
     canvas.create_window((0, 0), window=table_frame, anchor='nw')
-
-    scan_button = tk.Button(root, text="Eszközök beolvasása", command=scan_devices)
-    scan_button.pack(pady=10)
 
     ssh_username_label = tk.Label(root, text="Felhasználónév:")
     ssh_username_label.pack(pady=5)
