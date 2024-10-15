@@ -94,7 +94,7 @@ def scan_devices():
     create_table(devices)
     return devices
 
-def ssh_connect_and_get_mac_table(hostname, username, password, command="display mac-address table"):
+def ssh_connect_and_get_mac_table(hostname, username, password, command="enable\nconf t"):
     """SSH kapcsolat létrehozása és a MAC address tábla lekérdezése."""
     try:
         ssh = paramiko.SSHClient()
@@ -285,7 +285,7 @@ def main():
     ssh_password_entry = tk.Entry(root, show="*")
     ssh_password_entry.pack(pady=5)
 
-    ssh_button = tk.Button(root, text="MAC tábla lekérdezése", command=start_ssh_connection)
+    ssh_button = tk.Button(root, text="Hálózati ábra kirajzolása", command=start_ssh_connection)
     ssh_button.pack(pady=10)
 
     root.mainloop()

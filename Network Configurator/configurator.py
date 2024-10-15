@@ -43,8 +43,8 @@ def arp_scan(subnet, interface):
 
 def ssh_interactive_shell(ip):
     """Interaktív SSH kapcsolat létrehozása az eszközhöz.""" 
-    username = "administrator"
-    password = "Labor123-"
+    username = "admin"
+    password = "Password123"
 
     try:
         client = paramiko.SSHClient()
