@@ -171,15 +171,13 @@ def create_status_button(panel, port_number, status_var, output_label, operation
     def toggle_port_status():
         number = port_number.get()
         status = status_var.get()
-        command = ""
+        command = "enable\nconf t\n"
 
         output = send_command(shell, "")
-        if output[0] != "[": 
-            command += "system-view\n"
         if status == "fel":
-            command += f"interface {number}\nundo shutdown\nquit"
+            command += f"interface {number}\nno shutdown\nexit"
         elif status == "le":
-            command += f"interface {number}\nshutdown\nquit"
+            command += f"interface {number}\nshutdown\nexit"
 
         output = send_command(shell, command)
         output_label.config(text=output)
@@ -187,13 +185,11 @@ def create_status_button(panel, port_number, status_var, output_label, operation
     def set_port_vlan():
         number = port_number.get()
         vlan = vlan_id.get()
-        command = ""
+        command = "enable\nconf t\n"
 
         output = send_command(shell, "")
-        if output[0] != "[": 
-            command += "system-view\n"
         send_command(shell, f"vlan {vlan}\nquit")
-        command += f"interface {number}\nport link-type access\nport default vlan {vlan}\nquit"
+        command += f"interface {number}\nswitchport mode access\nswitchport access vlan {vlan}\nexit"
 
         output = send_command(shell, command)
         output_label.config(text=output)
