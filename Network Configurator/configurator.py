@@ -80,7 +80,7 @@ def open_device_panel(ip):
 
     shell, error_or_client = ssh_interactive_shell(ip)
     if not shell:
-        display_error(panel, error_or_client)
+        display_error(panel, error_or_client) 
         return
 
     # Szám mező, állapot kiválasztása, legördülő menü, gomb és kimeneti mező összerendezése
@@ -171,13 +171,13 @@ def create_status_button(panel, port_number, status_var, output_label, operation
     def toggle_port_status():
         number = port_number.get()
         status = status_var.get()
-        command = "enable\nconf t\n"
+        command = "enable\nconf t\n" 
 
         output = send_command(shell, "")
         if status == "fel":
-            command += f"interface {number}\nno shutdown\nexit"
+            command += f"interface {number}\nno shutdown\nexit\n"
         elif status == "le":
-            command += f"interface {number}\nshutdown\nexit"
+            command += f"interface {number}\nshutdown\nexit\n"
 
         output = send_command(shell, command)
         output_label.config(text=output)

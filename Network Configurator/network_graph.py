@@ -17,7 +17,9 @@ from PIL import Image
 device_types = {}
 device_list = {}
 devices_mac_addresses = {}
+devices_cdp_addresses = {}
 edges = []
+switches = []
 
 def get_friendly_interfaces():
     """Az eszköz interfész listájának létrehozása IP-címekkel, alhálózatokkal és alhálózati maszkokkal."""
@@ -94,19 +96,45 @@ def scan_devices():
     create_table(devices)
     return devices
 
-def ssh_connect_and_get_mac_table(hostname, username, password, command="enable\nconf t"):
+def send_command(shell, command):
+    """Parancs elküldése az interaktív SSH session-ön keresztül.""" 
+    try:
+        shell.send(command + "\n")
+        output = ""
+        while not shell.recv_ready():
+            continue
+        output += shell.recv(65535).decode()
+
+        root.after(500)
+        
+        while shell.recv_ready():
+            output += shell.recv(65535).decode()
+
+        return output.strip()
+    except Exception as e:
+        return f"Hiba a parancskiadás során: {e}"
+
+
+def ssh_connect_and_get_mac_table(hostname, username, password):
     """SSH kapcsolat létrehozása és a MAC address tábla lekérdezése."""
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(hostname, username=username, password=password)
-        stdin, stdout, stderr = ssh.exec_command(command)
-        output = stdout.read().decode()
+        shell = ssh.invoke_shell()
 
+        command="enable\nterminal length 0\nconf t\ndo show mac address-table dynamic | exclude Fa0/1$"
+        output = send_command(shell, command)
         with open(f"mac_address_table-{hostname}.txt", "w") as file:
             file.write(output)
-
         print(f"MAC address tábla sikeresen mentve: mac_address_table-{hostname}.txt")
+
+        command="enable\nterminal length 0\nconf t\ndo show cdp neigh detail"
+        output = send_command(shell, command)
+        with open(f"cdp_table-{hostname}.txt", "w") as file:
+            file.write(output)
+        print(f"MAC address tábla sikeresen mentve: cdp_table-{hostname}.txt")
+
         ssh.close()
         return "sw"
     except Exception as e:
@@ -134,7 +162,7 @@ def start_ssh_connection():
             counter_pc += 1
 
     load_mac_addresses_from_directory("./")
-    edge_summary(devices_mac_addresses, device_list)
+    edge_summary(devices_mac_addresses, device_list, devices_cdp_addresses)
     draw_network_graph(device_types, edges)
 
 def extract_mac_addresses_from_file(filepath):
@@ -149,6 +177,18 @@ def extract_mac_addresses_from_file(filepath):
     mac_addresses_list = list(mac_addresses)
     return mac_addresses_list
 
+def extract_cdp_ip_addresses_from_file(filepath):
+    """Kinyeri a MAC címeket a megadott fájlból."""
+    cdp_ip_adresses = set()
+    with open(filepath, 'r') as file:
+        for line in file:
+            # MAC címek keresése reguláris kifejezéssel
+            matches = re.findall(r'(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)', line, re.IGNORECASE)
+            for match in matches:
+                cdp_ip_adresses.add(match)  # Hozzáadás halmazhoz
+    cdp_ip_adresses_list = list(cdp_ip_adresses)
+    return cdp_ip_adresses_list
+
 def load_mac_addresses_from_directory(directory):
     """Beolvassa az összes .txt fájlt a megadott mappából, és a MAC címeket IP címekhez rendeli."""
     
@@ -157,13 +197,19 @@ def load_mac_addresses_from_directory(directory):
             # IP cím kinyerése a fájlnévből (hostname.txt -> hostname)
             full_name = str(filename[:-4])  # eltávolítjuk a .txt kiterjesztést
             ip_address_name =  full_name.split('-')[1] # itt használhatod a tényleges IP cím kinyerését, ha szükséges
-            
-            # MAC címek kinyerése
-            mac_addresses_list = extract_mac_addresses_from_file(os.path.join(directory, filename))
+            mac_addresses_list = []
+            cdp_list = []
+            if full_name.split('-')[0] == "mac_address_table":
+                # MAC címek kinyerése
+                mac_addresses_list = extract_mac_addresses_from_file(os.path.join(directory, filename))
+            elif full_name.split('-')[0] == "cdp_table":
+                cdp_list = extract_cdp_ip_addresses_from_file(os.path.join(directory, filename))
             
             # Szótár frissítése
             if mac_addresses_list:
                 devices_mac_addresses[ip_address_name] = mac_addresses_list
+            if cdp_list:
+                devices_cdp_addresses[ip_address_name] = cdp_list
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -238,17 +284,26 @@ def draw_network_graph(device_types, edges):
 
     plt.show()
 
-def edge_summary(mac_addresses, devices):
+def edge_summary(mac_addresses, devices, cdp_list):
     for ip, macs in mac_addresses.items():
+        """
+        for key, value in device_types.items():
+            if ip == value and key.split("-")[0] == "sw":
+                switches.append(ip)   
+        """   
         for mac in macs:
             matching_ip = next((key for key, value in devices.items() if value.replace(":", "") == mac.replace(".","")), None)
             # Ellenőrizzük, hogy találtunk-e matching_ip-t
             if matching_ip is None:
                 # Ha nem találunk egyezést, emeljük a kivételt
                 continue
-            # Ha van matching_ip, adjuk hozzá az éleket
             edge = f"{min(ip, matching_ip)}-{max(ip, matching_ip)}"
             if edge not in edges and matching_ip != ip:
+                edges.append(edge)
+    for ip2, cdp_ips in cdp_list.items():
+        for cdp_ip in cdp_ips:
+            edge = f"{min(ip2, cdp_ip)}-{max(ip2, cdp_ip)}"
+            if edge not in edges and cdp_ip != ip2:
                 edges.append(edge)
 
 def main():
