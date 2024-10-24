@@ -43,8 +43,8 @@ def arp_scan(subnet, interface):
 
 def ssh_interactive_shell(ip):
     """Interaktív SSH kapcsolat létrehozása az eszközhöz.""" 
-    username = "admin"
-    password = "Password123"
+    username = ssh_username_entry.get()
+    password = ssh_password_entry.get()
 
     try:
         client = paramiko.SSHClient()
@@ -250,12 +250,11 @@ def scan_devices():
     devices = arp_scan(subnet, selected_interface)
     create_table(devices)
 
-    print(subnet)
     return subnet  # Visszaadja az alhálózatot CIDR formátumban
 
 def main():
     """A grafikus felület és a fő logika elindítása.""" 
-    global root, table_frame, canvas, interface_combobox
+    global root, table_frame, canvas, interface_combobox, ssh_username_entry, ssh_password_entry
     
     # Grafikus felület létrehozása
     root = tk.Tk()
@@ -281,6 +280,16 @@ def main():
     # Eszközök beolvasásának gombja
     scan_button = tk.Button(root, text="Eszközök beolvasása", command=scan_devices)
     scan_button.pack(pady=10)
+
+    ssh_username_label = tk.Label(root, text="Felhasználónév:")
+    ssh_username_label.pack(pady=5)
+    ssh_username_entry = tk.Entry(root)
+    ssh_username_entry.pack(pady=5)
+
+    ssh_password_label = tk.Label(root, text="Jelszó:")
+    ssh_password_label.pack(pady=5)
+    ssh_password_entry = tk.Entry(root, show="*")
+    ssh_password_entry.pack(pady=5)
 
     root.mainloop()
 
